@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "Domingo",
@@ -28,6 +29,7 @@
 
     "plugins": [
       "expo-router",
+      "expo-notifications",
       [
         "expo-location",
         {

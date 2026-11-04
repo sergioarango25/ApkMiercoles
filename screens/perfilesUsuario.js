@@ -1,4 +1,6 @@
+
 import { useEffect, useRef, useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +33,16 @@ import {
 
 import { auth, db } from "../firebaseConfig";
 
+import {
+  notificarRegistroExitoso,
+  notificarInicioSesion,
+  registrarNotificaciones,
+} from "../services/notificaciones";
+
+// =====================================
+// CONSTANTES
+// =====================================
+
 const ROLES = [
   "Voluntario",
   "Logística",
@@ -42,6 +54,10 @@ const ZONAS = [
   { nombre: "Refugio San Miguel", distancia: "1.2 km" },
   { nombre: "Punto de alimentación", distancia: "1.5 km" },
 ];
+
+// =====================================
+// COMPONENTE PRINCIPAL
+// =====================================
 
 export default function PerfilUsuario() {
   const [user, setUser] = useState(null);
@@ -65,14 +81,20 @@ export default function PerfilUsuario() {
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
 
-  // Identifica el campo que está seleccionado
+  // Identifica el campo seleccionado
   const [campoActivo, setCampoActivo] = useState(null);
 
   // Información del perfil
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
+
   const [tipoParticipacion, setTipoParticipacion] =
     useState("Voluntario");
+
   const [disponible, setDisponible] = useState(true);
+
+  // =====================================
+  // CARGAR USUARIO AUTENTICADO
+  // =====================================
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
@@ -115,8 +137,11 @@ export default function PerfilUsuario() {
                 ? true
                 : datos.disponible
             );
+
           } else {
-            // Crear un perfil básico si la cuenta ya existe.
+            // Crear un perfil básico si la cuenta existe
+            // pero todavía no tiene documento en Firestore.
+
             const perfilInicial = {
               uid: firebaseUser.uid,
               nombre: firebaseUser.displayName || "Usuario",
@@ -139,8 +164,12 @@ export default function PerfilUsuario() {
             setTipoParticipacion("Voluntario");
             setDisponible(true);
           }
+
         } catch (error) {
-          console.log("Error al cargar el perfil:", error);
+          console.log(
+            "Error al cargar el perfil:",
+            error
+          );
 
           Alert.alert(
             "Error",
@@ -148,6 +177,7 @@ export default function PerfilUsuario() {
           );
 
           setUser(null);
+
         } finally {
           setCargando(false);
         }
@@ -157,11 +187,15 @@ export default function PerfilUsuario() {
     return unsubscribe;
   }, []);
 
+  // =====================================
   // REGISTRAR USUARIO
+  // =====================================
+
   const registrarUsuario = async () => {
     const nombreLimpio = nombre.trim();
     const correo = email.trim().toLowerCase();
 
+    // VALIDAR CAMPOS VACÍOS
     if (
       !nombreLimpio ||
       !correo ||
@@ -175,16 +209,18 @@ export default function PerfilUsuario() {
       return;
     }
 
+    // VALIDAR CORREO
     const correoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!correoValido.test(correo)) {
       Alert.alert(
         "Correo inválido",
-        "Escribe un correo válido."
+        "Escribe un correo electrónico válido."
       );
       return;
     }
 
+    // VALIDAR CONTRASEÑA
     if (password.length < 6) {
       Alert.alert(
         "Contraseña insegura",
@@ -193,6 +229,7 @@ export default function PerfilUsuario() {
       return;
     }
 
+    // CONFIRMAR CONTRASEÑA
     if (password !== confirmPassword) {
       Alert.alert(
         "Error",
@@ -204,14 +241,18 @@ export default function PerfilUsuario() {
     try {
       setGuardando(true);
 
+      // 1. CREAR USUARIO EN FIREBASE AUTHENTICATION
       const credencial = await createUserWithEmailAndPassword(
         auth,
         correo,
         password
       );
 
+      const usuarioId = credencial.user.uid;
+
+      // 2. CREAR INFORMACIÓN DEL USUARIO
       const nuevoUsuario = {
-        uid: credencial.user.uid,
+        uid: usuarioId,
         nombre: nombreLimpio,
         email: correo,
         rol: "usuario",
@@ -220,11 +261,13 @@ export default function PerfilUsuario() {
         fechaRegistro: serverTimestamp(),
       };
 
+      // 3. GUARDAR PERFIL EN FIRESTORE
       await setDoc(
-        doc(db, "usuarios", credencial.user.uid),
+        doc(db, "usuarios", usuarioId),
         nuevoUsuario
       );
 
+      // 4. ACTUALIZAR INFORMACIÓN EN PANTALLA
       setUser({
         ...nuevoUsuario,
         email: correo,
@@ -233,41 +276,91 @@ export default function PerfilUsuario() {
       setTipoParticipacion("Voluntario");
       setDisponible(true);
 
+      // 5. REGISTRAR TOKEN DEL DISPOSITIVO
+      // Esto permite identificar el dispositivo
+      // para futuras notificaciones push.
+
+      try {
+        await registrarNotificaciones(usuarioId);
+
+      } catch (errorNotificacion) {
+        console.log(
+          "No se pudo registrar el dispositivo:",
+          errorNotificacion
+        );
+      }
+
+      // 6. ENVIAR NOTIFICACIÓN LOCAL DE BIENVENIDA
+
+      try {
+        await notificarRegistroExitoso(nombreLimpio);
+
+      } catch (errorNotificacion) {
+        console.log(
+          "No se pudo mostrar la notificación:",
+          errorNotificacion
+        );
+      }
+
+      // 7. LIMPIAR FORMULARIO
       setNombre("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
 
+      // 8. CONFIRMAR REGISTRO
       Alert.alert(
-        "¡Bienvenido!",
-        "Tu cuenta fue creada correctamente."
+        "¡Bienvenido a La Esperanza!",
+        "Tu cuenta fue creada correctamente. Ya puedes comenzar a participar."
       );
+
     } catch (error) {
-      console.log("Error al registrar:", error);
+      console.log(
+        "Error al registrar usuario:",
+        error
+      );
 
       let mensaje =
-        "No se pudo crear la cuenta. Inténtalo de nuevo.";
+        "No se pudo crear la cuenta. Inténtalo nuevamente.";
 
       if (error.code === "auth/email-already-in-use") {
-        mensaje = "Este correo ya está registrado. Inicia sesión.";
-      } else if (error.code === "auth/invalid-email") {
-        mensaje = "El correo electrónico no es válido.";
-      } else if (error.code === "auth/weak-password") {
-        mensaje = "La contraseña es demasiado débil.";
-      } else if (error.code === "auth/network-request-failed") {
-        mensaje = "Revisa tu conexión a internet.";
-      } else if (error.code === "permission-denied") {
         mensaje =
-          "Firebase no permite guardar el perfil. Revisa las reglas de Firestore.";
+          "Este correo ya está registrado. Puedes iniciar sesión.";
+
+      } else if (error.code === "auth/invalid-email") {
+        mensaje =
+          "El correo electrónico no es válido.";
+
+      } else if (error.code === "auth/weak-password") {
+        mensaje =
+          "La contraseña es demasiado débil.";
+
+      } else if (error.code === "auth/network-request-failed") {
+        mensaje =
+          "Revisa tu conexión a internet.";
+
+      } else if (
+        error.code === "permission-denied" ||
+        error.code === "firestore/permission-denied"
+      ) {
+        mensaje =
+          "No se pudo guardar tu perfil. Revisa las reglas de seguridad de Firestore.";
       }
 
-      Alert.alert("No se pudo registrar", mensaje);
+      Alert.alert(
+        "No se pudo registrar",
+        mensaje
+      );
+
     } finally {
       setGuardando(false);
     }
   };
 
+  // =====================================
   // INICIAR SESIÓN
+  // =====================================
+
   const iniciarSesion = async () => {
     const correo = email.trim().toLowerCase();
 
@@ -282,16 +375,48 @@ export default function PerfilUsuario() {
     try {
       setGuardando(true);
 
-      await signInWithEmailAndPassword(
+      // 1. INICIAR SESIÓN
+      const credencial = await signInWithEmailAndPassword(
         auth,
         correo,
         password
       );
 
+      const usuarioId = credencial.user.uid;
+
+      // 2. REGISTRAR TOKEN DEL DISPOSITIVO
+
+      try {
+        await registrarNotificaciones(usuarioId);
+
+      } catch (errorNotificacion) {
+        console.log(
+          "No se pudo registrar el dispositivo:",
+          errorNotificacion
+        );
+      }
+
+      // 3. MOSTRAR NOTIFICACIÓN DE INICIO DE SESIÓN
+
+      try {
+        await notificarInicioSesion(correo);
+
+      } catch (errorNotificacion) {
+        console.log(
+          "No se pudo mostrar la notificación de inicio:",
+          errorNotificacion
+        );
+      }
+
+      // 4. LIMPIAR CAMPOS
       setPassword("");
       setConfirmPassword("");
+
     } catch (error) {
-      console.log("Error al iniciar sesión:", error);
+      console.log(
+        "Error al iniciar sesión:",
+        error
+      );
 
       let mensaje = "No se pudo iniciar sesión.";
 
@@ -300,20 +425,30 @@ export default function PerfilUsuario() {
         error.code === "auth/wrong-password" ||
         error.code === "auth/user-not-found"
       ) {
-        mensaje = "El correo o la contraseña son incorrectos.";
+        mensaje =
+          "El correo o la contraseña son incorrectos.";
+
       } else if (error.code === "auth/invalid-email") {
         mensaje = "Escribe un correo válido.";
+
       } else if (error.code === "auth/network-request-failed") {
         mensaje = "Revisa tu conexión a internet.";
       }
 
-      Alert.alert("Error de inicio de sesión", mensaje);
+      Alert.alert(
+        "Error de inicio de sesión",
+        mensaje
+      );
+
     } finally {
       setGuardando(false);
     }
   };
 
+  // =====================================
   // ABRIR FORMULARIO DEL PERFIL
+  // =====================================
+
   const abrirFormulario = () => {
     setTipoParticipacion(
       user?.tipoParticipacion || "Voluntario"
@@ -328,7 +463,10 @@ export default function PerfilUsuario() {
     setMostrarFormulario(true);
   };
 
+  // =====================================
   // GUARDAR INFORMACIÓN DEL PERFIL
+  // =====================================
+
   const guardarInformacion = async () => {
     if (!auth.currentUser) {
       Alert.alert(
@@ -364,19 +502,27 @@ export default function PerfilUsuario() {
         "¡Guardado!",
         "Tu perfil se actualizó correctamente."
       );
+
     } catch (error) {
-      console.log("Error al guardar el perfil:", error);
+      console.log(
+        "Error al guardar el perfil:",
+        error
+      );
 
       Alert.alert(
         "Error",
         "No se pudo guardar la información. Verifica los permisos de Firestore."
       );
+
     } finally {
       setGuardando(false);
     }
   };
 
+  // =====================================
   // CERRAR SESIÓN
+  // =====================================
+
   const cerrarSesion = () => {
     Alert.alert(
       "Cerrar sesión",
@@ -389,13 +535,21 @@ export default function PerfilUsuario() {
         {
           text: "Cerrar sesión",
           style: "destructive",
+
           onPress: async () => {
             try {
               await signOut(auth);
+
               setMostrarFormulario(false);
               setPassword("");
               setConfirmPassword("");
+
             } catch (error) {
+              console.log(
+                "Error al cerrar sesión:",
+                error
+              );
+
               Alert.alert(
                 "Error",
                 "No se pudo cerrar la sesión."
@@ -407,7 +561,10 @@ export default function PerfilUsuario() {
     );
   };
 
+  // =====================================
   // PANTALLA DE CARGA
+  // =====================================
+
   if (cargando) {
     return (
       <View style={styles.cargandoContainer}>
@@ -415,6 +572,7 @@ export default function PerfilUsuario() {
           size="large"
           color="#12343F"
         />
+
         <Text style={styles.textoCargando}>
           Cargando perfil...
         </Text>
@@ -422,7 +580,10 @@ export default function PerfilUsuario() {
     );
   }
 
+  // =====================================
   // REGISTRO E INICIO DE SESIÓN
+  // =====================================
+
   if (!user) {
     return (
       <KeyboardAvoidingView
@@ -487,8 +648,12 @@ export default function PerfilUsuario() {
                     onSubmitEditing={() =>
                       emailRef.current?.focus()
                     }
-                    onFocus={() => setCampoActivo("nombre")}
-                    onBlur={() => setCampoActivo(null)}
+                    onFocus={() =>
+                      setCampoActivo("nombre")
+                    }
+                    onBlur={() =>
+                      setCampoActivo(null)
+                    }
                     editable={!guardando}
                   />
                 </View>
@@ -528,8 +693,12 @@ export default function PerfilUsuario() {
                 onSubmitEditing={() =>
                   passwordRef.current?.focus()
                 }
-                onFocus={() => setCampoActivo("email")}
-                onBlur={() => setCampoActivo(null)}
+                onFocus={() =>
+                  setCampoActivo("email")
+                }
+                onBlur={() =>
+                  setCampoActivo(null)
+                }
                 editable={!guardando}
               />
             </View>
@@ -561,7 +730,9 @@ export default function PerfilUsuario() {
                 onChangeText={setPassword}
                 secureTextEntry={!mostrarPassword}
                 autoCapitalize="none"
-                returnKeyType={modoRegistro ? "next" : "done"}
+                returnKeyType={
+                  modoRegistro ? "next" : "done"
+                }
                 blurOnSubmit={!modoRegistro}
                 onSubmitEditing={() => {
                   if (modoRegistro) {
@@ -570,12 +741,17 @@ export default function PerfilUsuario() {
                     iniciarSesion();
                   }
                 }}
-                onFocus={() => setCampoActivo("password")}
-                onBlur={() => setCampoActivo(null)}
+                onFocus={() =>
+                  setCampoActivo("password")
+                }
+                onBlur={() =>
+                  setCampoActivo(null)
+                }
                 editable={!guardando}
               />
 
               <TouchableOpacity
+                disabled={guardando}
                 onPress={() =>
                   setMostrarPassword(!mostrarPassword)
                 }
@@ -626,11 +802,14 @@ export default function PerfilUsuario() {
                     onFocus={() =>
                       setCampoActivo("confirmPassword")
                     }
-                    onBlur={() => setCampoActivo(null)}
+                    onBlur={() =>
+                      setCampoActivo(null)
+                    }
                     editable={!guardando}
                   />
 
                   <TouchableOpacity
+                    disabled={guardando}
                     onPress={() =>
                       setMostrarConfirmPassword(
                         !mostrarConfirmPassword
@@ -676,6 +855,7 @@ export default function PerfilUsuario() {
               )}
             </TouchableOpacity>
 
+            {/* CAMBIAR ENTRE REGISTRO E INICIO */}
             <View style={styles.cambiarModo}>
               <Text style={styles.textoCambiarModo}>
                 {modoRegistro
@@ -705,7 +885,10 @@ export default function PerfilUsuario() {
     );
   }
 
+  // =====================================
   // PERFIL DEL USUARIO AUTENTICADO
+  // =====================================
+
   return (
     <ScrollView
       style={styles.contenedorPrincipal}
@@ -718,6 +901,7 @@ export default function PerfilUsuario() {
         </Text>
       </View>
 
+      {/* INFORMACIÓN DEL USUARIO */}
       <View style={styles.tarjetaUsuario}>
         <View style={styles.avatar}>
           <Ionicons
@@ -738,6 +922,7 @@ export default function PerfilUsuario() {
         </View>
       </View>
 
+      {/* PARTICIPACIÓN */}
       <View style={styles.encabezadoSeccion}>
         <Text style={styles.tituloSeccion}>
           Mi participación
@@ -753,6 +938,7 @@ export default function PerfilUsuario() {
             size={17}
             color="#12343F"
           />
+
           <Text style={styles.textoBotonEditar}>
             Editar
           </Text>
@@ -829,7 +1015,8 @@ export default function PerfilUsuario() {
           </Text>
 
           {ROLES.map((rol) => {
-            const seleccionado = tipoParticipacion === rol;
+            const seleccionado =
+              tipoParticipacion === rol;
 
             return (
               <TouchableOpacity
@@ -839,7 +1026,9 @@ export default function PerfilUsuario() {
                   seleccionado &&
                     styles.opcionRolSeleccionada,
                 ]}
-                onPress={() => setTipoParticipacion(rol)}
+                onPress={() =>
+                  setTipoParticipacion(rol)
+                }
                 activeOpacity={0.8}
               >
                 <Text
@@ -885,7 +1074,9 @@ export default function PerfilUsuario() {
               <Ionicons
                 name="checkmark-circle-outline"
                 size={19}
-                color={disponible ? "#FFFFFF" : "#12343F"}
+                color={
+                  disponible ? "#FFFFFF" : "#12343F"
+                }
               />
 
               <Text
@@ -910,7 +1101,9 @@ export default function PerfilUsuario() {
               <Ionicons
                 name="close-circle-outline"
                 size={19}
-                color={!disponible ? "#FFFFFF" : "#12343F"}
+                color={
+                  !disponible ? "#FFFFFF" : "#12343F"
+                }
               />
 
               <Text
@@ -928,7 +1121,9 @@ export default function PerfilUsuario() {
           <View style={styles.filaBotonesFormulario}>
             <TouchableOpacity
               style={styles.botonCancelar}
-              onPress={() => setMostrarFormulario(false)}
+              onPress={() =>
+                setMostrarFormulario(false)
+              }
               disabled={guardando}
             >
               <Text style={styles.textoBotonCancelar}>
@@ -1027,11 +1222,20 @@ export default function PerfilUsuario() {
     </ScrollView>
   );
 }
+
+// =====================================
+// FUENTE
+// =====================================
+
 const SERIF = Platform.select({
   ios: "Georgia",
   android: "serif",
   default: "Georgia, serif",
 });
+
+// =====================================
+// ESTILOS
+// =====================================
 
 const styles = StyleSheet.create({
   contenedorPrincipal: {
@@ -1134,7 +1338,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FBFAF7",
   },
 
-  // Borde resaltado del campo seleccionado
   inputContenedorActivo: {
     borderColor: "#12343F",
     borderWidth: 1.5,

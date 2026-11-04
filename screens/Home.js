@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
   },
 
   textoEstado: {
-    color: "#5E6F74",
+    color: "#000000",
     fontSize: 13,
     textAlign: "center",
     lineHeight: 20,
@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
   },
 
   textoVacio: {
-    color: "#12343F",
+    color: "#000000",
     fontSize: 16,
     fontWeight: "700",
     textAlign: "center",
@@ -621,14 +621,14 @@ const styles = StyleSheet.create({
   },
 
   tipoAyuda: {
-    color: "#12343F",
+    color: "#000000",
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: 0.2,
   },
 
   fechaSolicitud: {
-    color: "#8C979A",
+    color: "#000000",
     fontSize: 11,
     marginTop: 5,
     letterSpacing: 0.3,
@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   },
 
   etiquetaDescripcion: {
-    color: "#5E6F74",
+    color: "#000000",
     fontSize: 10,
     fontWeight: "700",
     marginBottom: 7,
@@ -664,13 +664,13 @@ const styles = StyleSheet.create({
   },
 
   descripcionSolicitud: {
-    color: "#3B4A50",
+    color: "#000000",
     fontSize: 14,
     lineHeight: 21,
   },
 
   pieSolicitudes: {
-    color: "#5E6F74",
+    color: "#000000",
     fontSize: 12,
     textAlign: "center",
     marginTop: 14,

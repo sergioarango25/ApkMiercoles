@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +15,8 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 
+import * as Notifications from "expo-notifications";
+
 import { auth, db } from "../firebaseConfig.js";
 
 import {
@@ -21,6 +24,17 @@ import {
   collection,
   serverTimestamp,
 } from "firebase/firestore";
+
+// Configuración de las notificaciones
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export default function Help() {
   const [tipoAyuda, setTipoAyuda] = useState("");
@@ -38,6 +52,54 @@ export default function Help() {
     { nombre: "Otro", icono: "help-circle-outline" },
   ];
 
+  // Solicitar permisos y mostrar notificación local
+  const notificarSolicitud = async (tipo) => {
+    try {
+      // Consultar permisos actuales
+      let permisos = await Notifications.getPermissionsAsync();
+
+      // Solicitar permisos si todavía no están concedidos
+      if (!permisos.granted) {
+        permisos = await Notifications.requestPermissionsAsync();
+      }
+
+      // Si el usuario no concede permisos, no interrumpimos el proceso
+      if (!permisos.granted) {
+        console.log("El usuario no autorizó las notificaciones.");
+        return;
+      }
+
+      // Configurar canal para Android
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync("solicitudes", {
+          name: "Solicitudes de ayuda",
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          sound: "default",
+        });
+      }
+
+      // Crear notificación local
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Solicitud enviada correctamente",
+          body: `Tu solicitud de ${tipo} se registró correctamente.`,
+          sound: "default",
+          data: {
+            pantalla: "Help",
+            tipoAyuda: tipo,
+          },
+        },
+        trigger: null,
+      });
+
+      console.log("Notificación de solicitud enviada.");
+    } catch (error) {
+      console.log("Error al mostrar la notificación:", error);
+    }
+  };
+
+  // Enviar solicitud a Firebase
   const enviarSolicitud = async () => {
     if (!tipoAyuda) {
       Alert.alert(
@@ -68,21 +130,33 @@ export default function Help() {
     try {
       setGuardando(true);
 
-      await addDoc(collection(db, "solicitudes"), {
-        usuarioId: usuarioActual.uid,
-        tipoAyuda,
-        descripcion: descripcion.trim(),
-        estado: "Pendiente",
-        fecha: serverTimestamp(),
-      });
-
-      Alert.alert(
-        "Solicitud enviada",
-        "Tu solicitud se registró correctamente y aparecerá en Home."
+      // Guardar solicitud en Firestore
+      const solicitud = await addDoc(
+        collection(db, "solicitudes"),
+        {
+          usuarioId: usuarioActual.uid,
+          tipoAyuda,
+          descripcion: descripcion.trim(),
+          estado: "Pendiente",
+          fecha: serverTimestamp(),
+        }
       );
 
+      console.log("Solicitud guardada:", solicitud.id);
+
+      // Mostrar notificación únicamente en este dispositivo
+      await notificarSolicitud(tipoAyuda);
+
+      // Confirmación en pantalla
+      Alert.alert(
+        "Solicitud enviada",
+        "Tu solicitud se registró correctamente. Recibirás una notificación en este dispositivo."
+      );
+
+      // Limpiar formulario
       setTipoAyuda("");
       setDescripcion("");
+
     } catch (error) {
       console.log("Error al guardar solicitud:", error);
 

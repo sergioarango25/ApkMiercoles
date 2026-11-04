@@ -1,7 +1,11 @@
+
 import { useEffect, useState } from 'react';
+
 import LogoAra from '../assets/img/Logo-ara.svg';
 import LogoD1 from '../assets/img/Logo-d1.svg';
 import LogoExito from '../assets/img/Logo-exito.svg';
+
+import * as Notifications from 'expo-notifications';
 
 import {
   ActivityIndicator,
@@ -29,6 +33,17 @@ import {
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebaseConfig';
 
+// Configuración de notificaciones
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 const Donar = () => {
   const [donationType, setDonationType] = useState('monetary');
   const [selectedAmount, setSelectedAmount] = useState('50000');
@@ -54,7 +69,9 @@ const Donar = () => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
 
-      if (currentUser && !donorName.trim()) {
+      if (currentUser && !currentUser.displayName) {
+        setDonorName('');
+      } else if (currentUser) {
         setDonorName(currentUser.displayName || '');
       }
     });
@@ -102,6 +119,60 @@ const Donar = () => {
 
     return unsubscribe;
   }, [user]);
+
+  // Notificación local para el usuario que registra la donación
+  const notificarDonacion = async (monto) => {
+    try {
+      // Consultar permisos actuales
+      let permisos = await Notifications.getPermissionsAsync();
+
+      // Solicitar permisos si todavía no están concedidos
+      if (!permisos.granted) {
+        permisos = await Notifications.requestPermissionsAsync();
+      }
+
+      // Si no concede permisos, no interrumpimos el registro
+      if (!permisos.granted) {
+        console.log('El usuario no autorizó las notificaciones.');
+        return;
+      }
+
+      // Configurar canal para Android
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync(
+          'donaciones',
+          {
+            name: 'Donaciones',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            sound: 'default',
+          }
+        );
+      }
+
+      // Crear notificación local
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Donación registrada',
+          body: `Tu donación de $${monto.toLocaleString('es-CO')} COP se guardó correctamente.`,
+          sound: 'default',
+          data: {
+            pantalla: 'Donar',
+            monto: monto,
+          },
+        },
+        trigger: null,
+      });
+
+      console.log('Notificación de donación enviada.');
+
+    } catch (error) {
+      console.log(
+        'Error al mostrar notificación de donación:',
+        error
+      );
+    }
+  };
 
   // Obtener el monto seleccionado
   const getCurrentDonationValue = () => {
@@ -185,9 +256,12 @@ const Donar = () => {
         {
           text: 'Confirmar',
           onPress: async () => {
+            if (saving) return;
+
             try {
               setSaving(true);
 
+              // Guardar donación en Firestore
               await addDoc(collection(db, 'donaciones'), {
                 usuarioId: user.uid,
                 nombreDonante: cleanName,
@@ -199,6 +273,10 @@ const Donar = () => {
                 fecha: serverTimestamp(),
               });
 
+              // Notificar únicamente a este usuario
+              await notificarDonacion(amount);
+
+              // Limpiar formulario
               setCustomAmount('');
               setSelectedAmount('50000');
               setNote('');
@@ -207,8 +285,12 @@ const Donar = () => {
                 'Registro guardado',
                 'Tu donación quedó guardada en Firebase y aparecerá en tu historial.'
               );
+
             } catch (error) {
-              console.error('Error al guardar donación:', error);
+              console.error(
+                'Error al guardar donación:',
+                error
+              );
 
               Alert.alert(
                 'No se pudo guardar',
