@@ -49,12 +49,6 @@ const ROLES = [
   "Apoyo en suministros",
 ];
 
-const ZONAS = [
-  { nombre: "Zona segura", distancia: "" },
-  { nombre: "Refugio San Miguel", distancia: "1.2 km" },
-  { nombre: "Punto de alimentación", distancia: "1.5 km" },
-];
-
 // =====================================
 // COMPONENTE PRINCIPAL
 // =====================================
@@ -75,13 +69,12 @@ export default function PerfilUsuario() {
   const [mostrarConfirmPassword, setMostrarConfirmPassword] =
     useState(false);
 
-  // Referencias para avanzar entre los campos
+  // Referencias de los campos
   const nombreRef = useRef(null);
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
 
-  // Identifica el campo seleccionado
   const [campoActivo, setCampoActivo] = useState(null);
 
   // Información del perfil
@@ -89,8 +82,6 @@ export default function PerfilUsuario() {
 
   const [tipoParticipacion, setTipoParticipacion] =
     useState("Voluntario");
-
-  const [disponible, setDisponible] = useState(true);
 
   // =====================================
   // CARGAR USUARIO AUTENTICADO
@@ -132,15 +123,8 @@ export default function PerfilUsuario() {
               datos.tipoParticipacion || "Voluntario"
             );
 
-            setDisponible(
-              datos.disponible === undefined
-                ? true
-                : datos.disponible
-            );
-
           } else {
-            // Crear un perfil básico si la cuenta existe
-            // pero todavía no tiene documento en Firestore.
+            // Crear un perfil básico si todavía no existe.
 
             const perfilInicial = {
               uid: firebaseUser.uid,
@@ -148,7 +132,11 @@ export default function PerfilUsuario() {
               email: firebaseUser.email || "",
               rol: "usuario",
               tipoParticipacion: "Voluntario",
+
+              // Este campo se conserva para el funcionamiento
+              // interno de la asignación de ayudas en Home.js.
               disponible: true,
+
               fechaRegistro: serverTimestamp(),
             };
 
@@ -162,14 +150,10 @@ export default function PerfilUsuario() {
             });
 
             setTipoParticipacion("Voluntario");
-            setDisponible(true);
           }
 
         } catch (error) {
-          console.log(
-            "Error al cargar el perfil:",
-            error
-          );
+          console.log("Error al cargar el perfil:", error);
 
           Alert.alert(
             "Error",
@@ -195,7 +179,6 @@ export default function PerfilUsuario() {
     const nombreLimpio = nombre.trim();
     const correo = email.trim().toLowerCase();
 
-    // VALIDAR CAMPOS VACÍOS
     if (
       !nombreLimpio ||
       !correo ||
@@ -209,7 +192,6 @@ export default function PerfilUsuario() {
       return;
     }
 
-    // VALIDAR CORREO
     const correoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!correoValido.test(correo)) {
@@ -220,7 +202,6 @@ export default function PerfilUsuario() {
       return;
     }
 
-    // VALIDAR CONTRASEÑA
     if (password.length < 6) {
       Alert.alert(
         "Contraseña insegura",
@@ -229,7 +210,6 @@ export default function PerfilUsuario() {
       return;
     }
 
-    // CONFIRMAR CONTRASEÑA
     if (password !== confirmPassword) {
       Alert.alert(
         "Error",
@@ -241,7 +221,7 @@ export default function PerfilUsuario() {
     try {
       setGuardando(true);
 
-      // 1. CREAR USUARIO EN FIREBASE AUTHENTICATION
+      // Crear cuenta en Firebase Authentication.
       const credencial = await createUserWithEmailAndPassword(
         auth,
         correo,
@@ -250,39 +230,36 @@ export default function PerfilUsuario() {
 
       const usuarioId = credencial.user.uid;
 
-      // 2. CREAR INFORMACIÓN DEL USUARIO
+      // Crear información del usuario.
       const nuevoUsuario = {
         uid: usuarioId,
         nombre: nombreLimpio,
         email: correo,
         rol: "usuario",
         tipoParticipacion: "Voluntario",
+
+        // Se conserva para la lógica interna de Home.js.
         disponible: true,
+
         fechaRegistro: serverTimestamp(),
       };
 
-      // 3. GUARDAR PERFIL EN FIRESTORE
+      // Guardar perfil en Firestore.
       await setDoc(
         doc(db, "usuarios", usuarioId),
         nuevoUsuario
       );
 
-      // 4. ACTUALIZAR INFORMACIÓN EN PANTALLA
       setUser({
         ...nuevoUsuario,
         email: correo,
       });
 
       setTipoParticipacion("Voluntario");
-      setDisponible(true);
 
-      // 5. REGISTRAR TOKEN DEL DISPOSITIVO
-      // Esto permite identificar el dispositivo
-      // para futuras notificaciones push.
-
+      // Registrar token del dispositivo.
       try {
         await registrarNotificaciones(usuarioId);
-
       } catch (errorNotificacion) {
         console.log(
           "No se pudo registrar el dispositivo:",
@@ -290,11 +267,9 @@ export default function PerfilUsuario() {
         );
       }
 
-      // 6. ENVIAR NOTIFICACIÓN LOCAL DE BIENVENIDA
-
+      // Notificación local de bienvenida.
       try {
         await notificarRegistroExitoso(nombreLimpio);
-
       } catch (errorNotificacion) {
         console.log(
           "No se pudo mostrar la notificación:",
@@ -302,23 +277,19 @@ export default function PerfilUsuario() {
         );
       }
 
-      // 7. LIMPIAR FORMULARIO
+      // Limpiar formulario.
       setNombre("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
 
-      // 8. CONFIRMAR REGISTRO
       Alert.alert(
         "¡Bienvenido a La Esperanza!",
         "Tu cuenta fue creada correctamente. Ya puedes comenzar a participar."
       );
 
     } catch (error) {
-      console.log(
-        "Error al registrar usuario:",
-        error
-      );
+      console.log("Error al registrar usuario:", error);
 
       let mensaje =
         "No se pudo crear la cuenta. Inténtalo nuevamente.";
@@ -328,16 +299,13 @@ export default function PerfilUsuario() {
           "Este correo ya está registrado. Puedes iniciar sesión.";
 
       } else if (error.code === "auth/invalid-email") {
-        mensaje =
-          "El correo electrónico no es válido.";
+        mensaje = "El correo electrónico no es válido.";
 
       } else if (error.code === "auth/weak-password") {
-        mensaje =
-          "La contraseña es demasiado débil.";
+        mensaje = "La contraseña es demasiado débil.";
 
       } else if (error.code === "auth/network-request-failed") {
-        mensaje =
-          "Revisa tu conexión a internet.";
+        mensaje = "Revisa tu conexión a internet.";
 
       } else if (
         error.code === "permission-denied" ||
@@ -347,10 +315,7 @@ export default function PerfilUsuario() {
           "No se pudo guardar tu perfil. Revisa las reglas de seguridad de Firestore.";
       }
 
-      Alert.alert(
-        "No se pudo registrar",
-        mensaje
-      );
+      Alert.alert("No se pudo registrar", mensaje);
 
     } finally {
       setGuardando(false);
@@ -375,7 +340,6 @@ export default function PerfilUsuario() {
     try {
       setGuardando(true);
 
-      // 1. INICIAR SESIÓN
       const credencial = await signInWithEmailAndPassword(
         auth,
         correo,
@@ -384,11 +348,9 @@ export default function PerfilUsuario() {
 
       const usuarioId = credencial.user.uid;
 
-      // 2. REGISTRAR TOKEN DEL DISPOSITIVO
-
+      // Registrar token del dispositivo.
       try {
         await registrarNotificaciones(usuarioId);
-
       } catch (errorNotificacion) {
         console.log(
           "No se pudo registrar el dispositivo:",
@@ -396,11 +358,9 @@ export default function PerfilUsuario() {
         );
       }
 
-      // 3. MOSTRAR NOTIFICACIÓN DE INICIO DE SESIÓN
-
+      // Notificación local de inicio de sesión.
       try {
         await notificarInicioSesion(correo);
-
       } catch (errorNotificacion) {
         console.log(
           "No se pudo mostrar la notificación de inicio:",
@@ -408,15 +368,11 @@ export default function PerfilUsuario() {
         );
       }
 
-      // 4. LIMPIAR CAMPOS
       setPassword("");
       setConfirmPassword("");
 
     } catch (error) {
-      console.log(
-        "Error al iniciar sesión:",
-        error
-      );
+      console.log("Error al iniciar sesión:", error);
 
       let mensaje = "No se pudo iniciar sesión.";
 
@@ -435,10 +391,7 @@ export default function PerfilUsuario() {
         mensaje = "Revisa tu conexión a internet.";
       }
 
-      Alert.alert(
-        "Error de inicio de sesión",
-        mensaje
-      );
+      Alert.alert("Error de inicio de sesión", mensaje);
 
     } finally {
       setGuardando(false);
@@ -452,12 +405,6 @@ export default function PerfilUsuario() {
   const abrirFormulario = () => {
     setTipoParticipacion(
       user?.tipoParticipacion || "Voluntario"
-    );
-
-    setDisponible(
-      user?.disponible === undefined
-        ? true
-        : user.disponible
     );
 
     setMostrarFormulario(true);
@@ -485,15 +432,15 @@ export default function PerfilUsuario() {
         auth.currentUser.uid
       );
 
+      // Solo se actualiza el tipo de participación.
+      // No se modifica el campo disponible.
       await updateDoc(referencia, {
         tipoParticipacion,
-        disponible,
       });
 
       setUser((anterior) => ({
         ...anterior,
         tipoParticipacion,
-        disponible,
       }));
 
       setMostrarFormulario(false);
@@ -504,10 +451,7 @@ export default function PerfilUsuario() {
       );
 
     } catch (error) {
-      console.log(
-        "Error al guardar el perfil:",
-        error
-      );
+      console.log("Error al guardar el perfil:", error);
 
       Alert.alert(
         "Error",
@@ -593,6 +537,7 @@ export default function PerfilUsuario() {
         <ScrollView
           contentContainerStyle={styles.authScroll}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.authHeader}>
             <View style={styles.logoCirculo}>
@@ -606,6 +551,10 @@ export default function PerfilUsuario() {
             <Text style={styles.tituloAuth}>
               La Esperanza
             </Text>
+
+            <Text style={styles.subtituloAuth}>
+              Unidos podemos ayudar a quienes más lo necesitan.
+            </Text>
           </View>
 
           <View style={styles.authCard}>
@@ -615,7 +564,13 @@ export default function PerfilUsuario() {
                 : "Bienvenido de nuevo"}
             </Text>
 
-            {/* CAMPO NOMBRE */}
+            <Text style={styles.descripcionAuth}>
+              {modoRegistro
+                ? "Regístrate para formar parte de nuestra comunidad."
+                : "Ingresa tus datos para continuar."}
+            </Text>
+
+            {/* NOMBRE */}
             {modoRegistro && (
               <>
                 <Text style={styles.labelInput}>
@@ -660,7 +615,7 @@ export default function PerfilUsuario() {
               </>
             )}
 
-            {/* CAMPO CORREO */}
+            {/* CORREO */}
             <Text style={styles.labelInput}>
               Correo electrónico
             </Text>
@@ -703,7 +658,7 @@ export default function PerfilUsuario() {
               />
             </View>
 
-            {/* CAMPO CONTRASEÑA */}
+            {/* CONTRASEÑA */}
             <Text style={styles.labelInput}>
               Contraseña
             </Text>
@@ -855,7 +810,7 @@ export default function PerfilUsuario() {
               )}
             </TouchableOpacity>
 
-            {/* CAMBIAR ENTRE REGISTRO E INICIO */}
+            {/* CAMBIAR MODO */}
             <View style={styles.cambiarModo}>
               <Text style={styles.textoCambiarModo}>
                 {modoRegistro
@@ -895,10 +850,25 @@ export default function PerfilUsuario() {
       contentContainerStyle={styles.perfilScroll}
       showsVerticalScrollIndicator={false}
     >
+      {/* ENCABEZADO */}
       <View style={styles.encabezadoPerfil}>
-        <Text style={styles.tituloPerfil}>
-          Mi perfil
-        </Text>
+        <View>
+          <Text style={styles.tituloPerfil}>
+            Mi perfil
+          </Text>
+
+          <Text style={styles.subtituloPerfil}>
+            Tu información personal
+          </Text>
+        </View>
+
+        <View style={styles.iconoEncabezado}>
+          <Ionicons
+            name="person-outline"
+            size={24}
+            color="#12343F"
+          />
+        </View>
       </View>
 
       {/* INFORMACIÓN DEL USUARIO */}
@@ -906,7 +876,7 @@ export default function PerfilUsuario() {
         <View style={styles.avatar}>
           <Ionicons
             name="person"
-            size={35}
+            size={36}
             color="#12343F"
           />
         </View>
@@ -919,14 +889,28 @@ export default function PerfilUsuario() {
           <Text style={styles.correoUsuario}>
             {user.email || "Sin correo registrado"}
           </Text>
+
+          <View style={styles.etiquetaCuenta}>
+            <View style={styles.puntoCuenta} />
+
+            <Text style={styles.textoEtiquetaCuenta}>
+              Cuenta activa
+            </Text>
+          </View>
         </View>
       </View>
 
       {/* PARTICIPACIÓN */}
       <View style={styles.encabezadoSeccion}>
-        <Text style={styles.tituloSeccion}>
-          Mi participación
-        </Text>
+        <View>
+          <Text style={styles.tituloSeccion}>
+            Mi participación
+          </Text>
+
+          <Text style={styles.descripcionSeccion}>
+            Así formas parte de La Esperanza.
+          </Text>
+        </View>
 
         <TouchableOpacity
           style={styles.botonEditar}
@@ -945,70 +929,49 @@ export default function PerfilUsuario() {
         </TouchableOpacity>
       </View>
 
+      {/* TARJETA DE PARTICIPACIÓN */}
       <View style={styles.tarjetaInfo}>
-        <View style={styles.filaInfo}>
-          <View style={styles.iconoInfo}>
-            <Ionicons
-              name="people-outline"
-              size={23}
-              color="#12343F"
-            />
-          </View>
-
-          <View style={styles.contenidoInfo}>
-            <Text style={styles.etiquetaInfo}>
-              Tipo de participación
-            </Text>
-
-            <Text style={styles.valorInfo}>
-              {user.tipoParticipacion || "Voluntario"}
-            </Text>
-          </View>
+        <View style={styles.iconoInfo}>
+          <Ionicons
+            name="people-outline"
+            size={25}
+            color="#12343F"
+          />
         </View>
 
-        <View style={styles.separador} />
+        <View style={styles.contenidoInfo}>
+          <Text style={styles.etiquetaInfo}>
+            Tipo de participación
+          </Text>
 
-        <View style={styles.filaInfo}>
-          <View style={styles.iconoInfo}>
-            <Ionicons
-              name="calendar-outline"
-              size={23}
-              color="#12343F"
-            />
-          </View>
-
-          <View style={styles.contenidoInfo}>
-            <Text style={styles.etiquetaInfo}>
-              Disponibilidad
-            </Text>
-
-            <Text style={styles.valorInfo}>
-              {user.disponible === false
-                ? "No disponible"
-                : "Disponible para ayudar"}
-            </Text>
-          </View>
-
-          <View
-            style={[
-              styles.puntoEstado,
-              {
-                backgroundColor:
-                  user.disponible === false
-                    ? "#A84A4A"
-                    : "#3F8A68",
-              },
-            ]}
-          />
+          <Text style={styles.valorInfo}>
+            {user.tipoParticipacion || "Voluntario"}
+          </Text>
         </View>
       </View>
 
-      {/* FORMULARIO PARA EDITAR EL PERFIL */}
+      {/* FORMULARIO DE EDICIÓN */}
       {mostrarFormulario && (
         <View style={styles.tarjetaFormulario}>
-          <Text style={styles.tituloFormulario}>
-            Editar participación
-          </Text>
+          <View style={styles.encabezadoFormulario}>
+            <View>
+              <Text style={styles.tituloFormulario}>
+                Editar participación
+              </Text>
+
+              <Text style={styles.descripcionFormulario}>
+                Selecciona cómo deseas colaborar.
+              </Text>
+            </View>
+
+            <View style={styles.iconoFormulario}>
+              <Ionicons
+                name="create-outline"
+                size={22}
+                color="#12343F"
+              />
+            </View>
+          </View>
 
           <Text style={styles.labelRol}>
             Tipo de participación
@@ -1031,15 +994,33 @@ export default function PerfilUsuario() {
                 }
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.textoOpcionRol,
-                    seleccionado &&
-                      styles.textoOpcionSeleccionada,
-                  ]}
-                >
-                  {rol}
-                </Text>
+                <View style={styles.contenidoOpcionRol}>
+                  <Ionicons
+                    name={
+                      rol === "Voluntario"
+                        ? "people-outline"
+                        : rol === "Logística"
+                        ? "clipboard-outline"
+                        : "cube-outline"
+                    }
+                    size={21}
+                    color={
+                      seleccionado
+                        ? "#12343F"
+                        : "#68777A"
+                    }
+                  />
+
+                  <Text
+                    style={[
+                      styles.textoOpcionRol,
+                      seleccionado &&
+                        styles.textoOpcionSeleccionada,
+                    ]}
+                  >
+                    {rol}
+                  </Text>
+                </View>
 
                 <Ionicons
                   name={
@@ -1057,66 +1038,6 @@ export default function PerfilUsuario() {
               </TouchableOpacity>
             );
           })}
-
-          <Text style={styles.labelRol}>
-            ¿Estás disponible?
-          </Text>
-
-          <View style={styles.filaDisponibilidad}>
-            <TouchableOpacity
-              style={[
-                styles.botonDisponibilidad,
-                disponible && styles.disponibilidadActiva,
-              ]}
-              onPress={() => setDisponible(true)}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={19}
-                color={
-                  disponible ? "#FFFFFF" : "#12343F"
-                }
-              />
-
-              <Text
-                style={[
-                  styles.textoDisponibilidad,
-                  disponible &&
-                    styles.textoDisponibilidadActivo,
-                ]}
-              >
-                Sí, disponible
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.botonDisponibilidad,
-                !disponible && styles.disponibilidadActiva,
-              ]}
-              onPress={() => setDisponible(false)}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="close-circle-outline"
-                size={19}
-                color={
-                  !disponible ? "#FFFFFF" : "#12343F"
-                }
-              />
-
-              <Text
-                style={[
-                  styles.textoDisponibilidad,
-                  !disponible &&
-                    styles.textoDisponibilidadActivo,
-                ]}
-              >
-                No disponible
-              </Text>
-            </TouchableOpacity>
-          </View>
 
           <View style={styles.filaBotonesFormulario}>
             <TouchableOpacity
@@ -1143,7 +1064,7 @@ export default function PerfilUsuario() {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.textoBotonGuardar}>
-                  Guardar
+                  Guardar cambios
                 </Text>
               )}
             </TouchableOpacity>
@@ -1151,53 +1072,27 @@ export default function PerfilUsuario() {
         </View>
       )}
 
-      {/* ZONAS DE APOYO */}
-      <View style={styles.encabezadoSeccion}>
-        <Text style={styles.tituloSeccion}>
-          Zonas de apoyo
-        </Text>
+      {/* MENSAJE DE COMUNIDAD */}
+      <View style={styles.tarjetaMensaje}>
+        <View style={styles.iconoMensaje}>
+          <Ionicons
+            name="heart-outline"
+            size={25}
+            color="#A8803A"
+          />
+        </View>
+
+        <View style={styles.contenidoMensaje}>
+          <Text style={styles.tituloMensaje}>
+            Gracias por ser parte
+          </Text>
+
+          <Text style={styles.textoMensaje}>
+            Cada persona que decide ayudar puede marcar
+            una diferencia en la vida de alguien.
+          </Text>
+        </View>
       </View>
-
-      <Text style={styles.descripcionZonas}>
-        Algunos puntos de referencia de nuestra comunidad.
-      </Text>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.listaZonas}
-      >
-        {ZONAS.map((zona, index) => (
-          <View
-            style={styles.tarjetaZona}
-            key={zona.nombre}
-          >
-            <View style={styles.iconoZona}>
-              <Ionicons
-                name={
-                  index === 0
-                    ? "shield-checkmark-outline"
-                    : index === 1
-                    ? "home-outline"
-                    : "restaurant-outline"
-                }
-                size={25}
-                color="#12343F"
-              />
-            </View>
-
-            <Text style={styles.nombreZona}>
-              {zona.nombre}
-            </Text>
-
-            {zona.distancia !== "" && (
-              <Text style={styles.distanciaZona}>
-                {zona.distancia}
-              </Text>
-            )}
-          </View>
-        ))}
-      </ScrollView>
 
       {/* CERRAR SESIÓN */}
       <TouchableOpacity
@@ -1256,7 +1151,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Registro e inicio de sesión
+  // REGISTRO E INICIO DE SESIÓN
+
   authScroll: {
     flexGrow: 1,
     justifyContent: "center",
@@ -1294,6 +1190,15 @@ const styles = StyleSheet.create({
     fontFamily: SERIF,
   },
 
+  subtituloAuth: {
+    color: "#68777A",
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 9,
+    lineHeight: 20,
+    paddingHorizontal: 15,
+  },
+
   authCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
@@ -1316,6 +1221,15 @@ const styles = StyleSheet.create({
     color: "#12343F",
     letterSpacing: 0.3,
     fontFamily: SERIF,
+  },
+
+  descripcionAuth: {
+    textAlign: "center",
+    color: "#68777A",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    marginBottom: 10,
   },
 
   labelInput: {
@@ -1399,15 +1313,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  // Perfil
+  // PERFIL
+
   perfilScroll: {
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 30,
+    paddingTop: 25,
+    paddingBottom: 35,
   },
 
   encabezadoPerfil: {
-    marginBottom: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 23,
   },
 
   tituloPerfil: {
@@ -1418,6 +1336,23 @@ const styles = StyleSheet.create({
     fontFamily: SERIF,
   },
 
+  subtituloPerfil: {
+    color: "#68777A",
+    fontSize: 13,
+    marginTop: 5,
+  },
+
+  iconoEncabezado: {
+    width: 47,
+    height: 47,
+    borderRadius: 16,
+    backgroundColor: "#EAEFEE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // TARJETA DEL USUARIO
+
   tarjetaUsuario: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -1426,7 +1361,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#E6E1D6",
-    marginBottom: 25,
+    marginBottom: 29,
     shadowColor: "#0D2832",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.07,
@@ -1437,13 +1372,13 @@ const styles = StyleSheet.create({
   },
 
   avatar: {
-    width: 65,
-    height: 65,
-    borderRadius: 33,
+    width: 67,
+    height: 67,
+    borderRadius: 34,
     backgroundColor: "#EAEFEE",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    marginRight: 15,
     borderWidth: 2,
     borderColor: "#A8803A",
   },
@@ -1462,31 +1397,64 @@ const styles = StyleSheet.create({
 
   correoUsuario: {
     color: "#5E6F74",
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 5,
   },
+
+  etiquetaCuenta: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#EDF4EF",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginTop: 10,
+  },
+
+  puntoCuenta: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#3F8A68",
+    marginRight: 6,
+  },
+
+  textoEtiquetaCuenta: {
+    color: "#3F7658",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  // PARTICIPACIÓN
 
   encabezadoSeccion: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 13,
+    marginBottom: 14,
   },
 
   tituloSeccion: {
     color: "#12343F",
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: "700",
     letterSpacing: 0.2,
     fontFamily: SERIF,
+  },
+
+  descripcionSeccion: {
+    color: "#68777A",
+    fontSize: 12,
+    marginTop: 5,
   },
 
   botonEditar: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#EAEFEE",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
     borderRadius: 12,
     gap: 5,
   },
@@ -1500,10 +1468,12 @@ const styles = StyleSheet.create({
   tarjetaInfo: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
-    paddingHorizontal: 16,
+    padding: 17,
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: "#E6E1D6",
-    marginBottom: 26,
+    marginBottom: 27,
     shadowColor: "#0D2832",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
@@ -1511,20 +1481,14 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  filaInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 16,
-  },
-
   iconoInfo: {
-    width: 45,
-    height: 45,
-    borderRadius: 14,
+    width: 49,
+    height: 49,
+    borderRadius: 15,
     backgroundColor: "#EDF1F0",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 13,
+    marginRight: 14,
   },
 
   contenidoInfo: {
@@ -1532,42 +1496,38 @@ const styles = StyleSheet.create({
   },
 
   etiquetaInfo: {
-    color: "#5E6F74",
+    color: "#68777A",
     fontSize: 12,
   },
 
   valorInfo: {
     color: "#12343F",
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    marginTop: 5,
+    marginTop: 6,
   },
 
-  separador: {
-    height: 1,
-    backgroundColor: "#EEEAE0",
-  },
+  // FORMULARIO
 
-  puntoEstado: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginLeft: 8,
-  },
-
-  // Formulario de edición
   tarjetaFormulario: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
     borderColor: "#E6E1D6",
-    marginBottom: 26,
+    marginBottom: 27,
     shadowColor: "#0D2832",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.06,
     shadowRadius: 14,
     elevation: 3,
+  },
+
+  encabezadoFormulario: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
   },
 
   tituloFormulario: {
@@ -1577,21 +1537,35 @@ const styles = StyleSheet.create({
     fontFamily: SERIF,
   },
 
+  descripcionFormulario: {
+    color: "#68777A",
+    fontSize: 12,
+    marginTop: 5,
+  },
+
+  iconoFormulario: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#EAEFEE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   labelRol: {
     color: "#12343F",
     fontSize: 14,
     fontWeight: "700",
-    marginBottom: 10,
-    marginTop: 5,
+    marginBottom: 11,
   },
 
   opcionRol: {
-    minHeight: 50,
+    minHeight: 53,
     borderWidth: 1,
     borderColor: "#E6E1D6",
     borderRadius: 13,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    paddingHorizontal: 13,
+    marginBottom: 9,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1604,6 +1578,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
 
+  contenidoOpcionRol: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+
   textoOpcionRol: {
     fontSize: 13,
     color: "#5E6F74",
@@ -1614,44 +1594,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  filaDisponibilidad: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 18,
-  },
-
-  botonDisponibilidad: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: "#E0DACB",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-    gap: 5,
-  },
-
-  disponibilidadActiva: {
-    backgroundColor: "#12343F",
-    borderColor: "#12343F",
-  },
-
-  textoDisponibilidad: {
-    color: "#12343F",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  textoDisponibilidadActivo: {
-    color: "#FFFFFF",
-  },
-
   filaBotonesFormulario: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 5,
+    marginTop: 14,
   },
 
   botonCancelar: {
@@ -1670,7 +1616,7 @@ const styles = StyleSheet.create({
   },
 
   botonGuardar: {
-    flex: 1,
+    flex: 1.4,
     minHeight: 50,
     borderRadius: 13,
     backgroundColor: "#12343F",
@@ -1683,59 +1629,50 @@ const styles = StyleSheet.create({
   textoBotonGuardar: {
     color: "#FFFFFF",
     fontWeight: "700",
-  },
-
-  // Zonas
-  descripcionZonas: {
-    color: "#5E6F74",
     fontSize: 13,
-    marginTop: -5,
-    marginBottom: 14,
-    lineHeight: 19,
   },
 
-  listaZonas: {
-    paddingBottom: 8,
-    gap: 12,
-  },
+  // MENSAJE DE COMUNIDAD
 
-  tarjetaZona: {
-    width: 165,
-    minHeight: 145,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 15,
+  tarjetaMensaje: {
+    backgroundColor: "#F0EDE4",
+    borderRadius: 19,
+    padding: 17,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 25,
     borderWidth: 1,
     borderColor: "#E6E1D6",
-    shadowColor: "#0D2832",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 2,
   },
 
-  iconoZona: {
-    width: 45,
-    height: 45,
-    borderRadius: 14,
-    backgroundColor: "#EAEFEE",
+  iconoMensaje: {
+    width: 47,
+    height: 47,
+    borderRadius: 15,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 13,
+    marginRight: 13,
   },
 
-  nombreZona: {
+  contenidoMensaje: {
+    flex: 1,
+  },
+
+  tituloMensaje: {
     color: "#12343F",
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
-    lineHeight: 20,
+    marginBottom: 5,
   },
 
-  distanciaZona: {
+  textoMensaje: {
     color: "#5E6F74",
     fontSize: 12,
-    marginTop: 6,
+    lineHeight: 18,
   },
+
+  // CERRAR SESIÓN
 
   botonCerrarSesion: {
     flexDirection: "row",
@@ -1744,9 +1681,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#EBD3D3",
-    minHeight: 50,
+    minHeight: 52,
     borderRadius: 14,
-    marginTop: 28,
+    marginTop: 5,
     gap: 8,
   },
 
@@ -1761,7 +1698,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#8C979A",
     fontSize: 12,
-    marginTop: 20,
+    marginTop: 22,
     letterSpacing: 0.3,
   },
 });

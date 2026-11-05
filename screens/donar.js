@@ -1,11 +1,11 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
-import LogoAra from '../assets/img/Logo-ara.svg';
-import LogoD1 from '../assets/img/Logo-d1.svg';
-import LogoExito from '../assets/img/Logo-exito.svg';
+import LogoAra from "../assets/img/Logo-ara.svg";
+import LogoD1 from "../assets/img/Logo-d1.svg";
+import LogoExito from "../assets/img/Logo-exito.svg";
 
-import * as Notifications from 'expo-notifications';
+import * as Notifications from "expo-notifications";
 
 import {
   ActivityIndicator,
@@ -18,22 +18,20 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
+} from "react-native";
 
 import {
   addDoc,
   collection,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   where,
-} from 'firebase/firestore';
+  query,
+} from "firebase/firestore";
 
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../firebaseConfig';
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "../firebaseConfig";
 
-// Configuración de notificaciones
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -45,54 +43,55 @@ Notifications.setNotificationHandler({
 });
 
 const Donar = () => {
-  const [donationType, setDonationType] = useState('monetary');
-  const [selectedAmount, setSelectedAmount] = useState('50000');
-  const [customAmount, setCustomAmount] = useState('');
-  const [donorName, setDonorName] = useState('');
-  const [note, setNote] = useState('');
+  const [activeView, setActiveView] = useState("money");
+
+  const [selectedAmount, setSelectedAmount] = useState("50000");
+  const [customAmount, setCustomAmount] = useState("");
+  const [donorName, setDonorName] = useState("");
+  const [note, setNote] = useState("");
 
   const [user, setUser] = useState(null);
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Montos disponibles
   const amounts = [
-    { value: '20000', label: '$20.000' },
-    { value: '50000', label: '$50.000' },
-    { value: '100000', label: '$100.000' },
-    { value: '200000', label: '$200.000' },
+    { value: "20000", label: "$20.000" },
+    { value: "50000", label: "$50.000" },
+    { value: "100000", label: "$100.000" },
+    { value: "200000", label: "$200.000" },
   ];
 
-  // Detectar el usuario autenticado
+  // Detectar usuario autenticado
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
 
-      if (currentUser && !currentUser.displayName) {
-        setDonorName('');
-      } else if (currentUser) {
-        setDonorName(currentUser.displayName || '');
+      if (currentUser) {
+        setDonorName(currentUser.displayName || "");
+      } else {
+        setDonorName("");
+        setDonations([]);
+        setLoading(false);
       }
     });
 
     return unsubscribeAuth;
   }, []);
 
-  // Cargar únicamente las donaciones del usuario
+  // Cargar las donaciones del usuario
   useEffect(() => {
     if (!user) {
       setDonations([]);
       setLoading(false);
-      return undefined;
+      return;
     }
 
     setLoading(true);
 
     const donationsQuery = query(
-      collection(db, 'donaciones'),
-      where('usuarioId', '==', user.uid),
-      orderBy('fecha', 'desc')
+      collection(db, "donaciones"),
+      where("usuarioId", "==", user.uid)
     );
 
     const unsubscribe = onSnapshot(
@@ -103,16 +102,28 @@ const Donar = () => {
           ...document.data(),
         }));
 
+        donationsData.sort((a, b) => {
+          const fechaA = a.fecha?.toDate
+            ? a.fecha.toDate().getTime()
+            : 0;
+
+          const fechaB = b.fecha?.toDate
+            ? b.fecha.toDate().getTime()
+            : 0;
+
+          return fechaB - fechaA;
+        });
+
         setDonations(donationsData);
         setLoading(false);
       },
       (error) => {
-        console.error('Error al cargar donaciones:', error);
+        console.error("Error al cargar donaciones:", error);
         setLoading(false);
 
         Alert.alert(
-          'No se pudo cargar el historial',
-          'Revisa tu conexión y los permisos de Firestore.'
+          "Error al cargar el balance",
+          "No pudimos consultar tus donaciones. Revisa tu conexión y los permisos de Firestore."
         );
       }
     );
@@ -120,68 +131,29 @@ const Donar = () => {
     return unsubscribe;
   }, [user]);
 
-  // Notificación local para el usuario que registra la donación
-  const notificarDonacion = async (monto) => {
-    try {
-      // Consultar permisos actuales
-      let permisos = await Notifications.getPermissionsAsync();
-
-      // Solicitar permisos si todavía no están concedidos
-      if (!permisos.granted) {
-        permisos = await Notifications.requestPermissionsAsync();
-      }
-
-      // Si no concede permisos, no interrumpimos el registro
-      if (!permisos.granted) {
-        console.log('El usuario no autorizó las notificaciones.');
-        return;
-      }
-
-      // Configurar canal para Android
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync(
-          'donaciones',
-          {
-            name: 'Donaciones',
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            sound: 'default',
-          }
-        );
-      }
-
-      // Crear notificación local
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Donación registrada',
-          body: `Tu donación de $${monto.toLocaleString('es-CO')} COP se guardó correctamente.`,
-          sound: 'default',
-          data: {
-            pantalla: 'Donar',
-            monto: monto,
-          },
-        },
-        trigger: null,
-      });
-
-      console.log('Notificación de donación enviada.');
-
-    } catch (error) {
-      console.log(
-        'Error al mostrar notificación de donación:',
-        error
-      );
-    }
+  // Formatear valores monetarios
+  const formatMoney = (value) => {
+    return Number(value || 0).toLocaleString("es-CO", {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    });
   };
 
-  // Obtener el monto seleccionado
+  // Calcular total donado
+  const totalDonated = donations.reduce(
+    (total, item) => total + (Number(item.monto) || 0),
+    0
+  );
+
+  // Obtener monto seleccionado
   const getCurrentDonationValue = () => {
     const rawValue =
-      selectedAmount === 'custom'
+      selectedAmount === "custom"
         ? customAmount
         : selectedAmount;
 
-    const normalizedValue = String(rawValue).replace(/[.\s,$]/g, '');
+    const normalizedValue = String(rawValue).replace(/[.\s,$]/g, "");
 
     if (!/^\d+$/.test(normalizedValue)) {
       return 0;
@@ -190,26 +162,69 @@ const Donar = () => {
     return Number(normalizedValue);
   };
 
-  // Seleccionar uno de los montos
+  // Seleccionar monto
   const handleSelectAmount = (value) => {
     setSelectedAmount(value);
-    setCustomAmount('');
+    setCustomAmount("");
   };
 
-  // Aceptar únicamente números en el monto personalizado
+  // Validar monto personalizado
   const handleCustomAmountChange = (text) => {
-    const digitsOnly = text.replace(/\D/g, '');
+    const digitsOnly = text.replace(/\D/g, "");
 
     setCustomAmount(digitsOnly);
-    setSelectedAmount('custom');
+    setSelectedAmount("custom");
   };
 
-  // Validar y guardar la donación
+  // Mostrar notificación local
+  const notificarDonacion = async (monto) => {
+    try {
+      let permisos = await Notifications.getPermissionsAsync();
+
+      if (!permisos.granted) {
+        permisos = await Notifications.requestPermissionsAsync();
+      }
+
+      if (!permisos.granted) {
+        console.log("El usuario no autorizó las notificaciones.");
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync(
+          "donaciones",
+          {
+            name: "Donaciones",
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            sound: "default",
+          }
+        );
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Donación registrada",
+          body: `Tu donación de ${formatMoney(monto)} se guardó correctamente.`,
+          sound: "default",
+          data: {
+            pantalla: "Balance",
+            monto,
+          },
+        },
+        trigger: null,
+      });
+    } catch (error) {
+      console.log("Error al mostrar notificación:", error);
+    }
+  };
+
+  // Guardar donación
   const handleSaveDonation = async () => {
     if (!user) {
       Alert.alert(
-        'Inicia sesión',
-        'Debes iniciar sesión para guardar tu donación.'
+        "Inicia sesión",
+        "Debes iniciar sesión para registrar una donación."
       );
       return;
     }
@@ -220,81 +235,71 @@ const Donar = () => {
 
     if (!cleanName) {
       Alert.alert(
-        'Falta tu nombre',
-        'Escribe el nombre del donante.'
+        "Falta tu nombre",
+        "Escribe el nombre del donante."
       );
       return;
     }
 
     if (!Number.isSafeInteger(amount) || amount < 1000) {
       Alert.alert(
-        'Monto inválido',
-        'Ingresa un monto de mínimo $1.000 COP, sin puntos ni comas.'
+        "Monto inválido",
+        "Ingresa un monto mínimo de $1.000 COP."
       );
       return;
     }
 
     if (cleanNote.length > 250) {
       Alert.alert(
-        'Mensaje muy largo',
-        'El mensaje debe tener máximo 250 caracteres.'
+        "Mensaje muy largo",
+        "El mensaje debe tener máximo 250 caracteres."
       );
       return;
     }
 
-    // Confirmar antes de guardar
     Alert.alert(
-      'Confirmar donación',
-      `Vas a registrar una donación de $${amount.toLocaleString(
-        'es-CO'
-      )} COP. Este formulario guarda el registro, pero no realiza un pago real.`,
+      "Confirmar donación",
+      `Vas a registrar una donación de ${formatMoney(amount)}. Este formulario registra la donación, pero no realiza un pago real.`,
       [
         {
-          text: 'Revisar',
-          style: 'cancel',
+          text: "Revisar",
+          style: "cancel",
         },
         {
-          text: 'Confirmar',
+          text: "Confirmar",
           onPress: async () => {
             if (saving) return;
 
             try {
               setSaving(true);
 
-              // Guardar donación en Firestore
-              await addDoc(collection(db, 'donaciones'), {
+              await addDoc(collection(db, "donaciones"), {
                 usuarioId: user.uid,
                 nombreDonante: cleanName,
-                correo: user.email || '',
+                correo: user.email || "",
                 monto: amount,
-                moneda: 'COP',
+                moneda: "COP",
                 nota: cleanNote,
-                estado: 'Registrada',
+                estado: "Registrada",
                 fecha: serverTimestamp(),
               });
 
-              // Notificar únicamente a este usuario
               await notificarDonacion(amount);
 
-              // Limpiar formulario
-              setCustomAmount('');
-              setSelectedAmount('50000');
-              setNote('');
+              setCustomAmount("");
+              setSelectedAmount("50000");
+              setNote("");
 
               Alert.alert(
-                'Registro guardado',
-                'Tu donación quedó guardada en Firebase y aparecerá en tu historial.'
+                "Donación registrada",
+                "Tu donación quedó guardada correctamente. Ya puedes consultarla en Balance."
               );
-
             } catch (error) {
-              console.error(
-                'Error al guardar donación:',
-                error
-              );
+              console.error("Error al guardar donación:", error);
 
               Alert.alert(
-                'No se pudo guardar',
-                'Verifica tu conexión, que hayas iniciado sesión y las reglas de Firestore.'
+                "No se pudo guardar",
+                "Verifica tu conexión, tu sesión y las reglas de Firestore."
               );
             } finally {
               setSaving(false);
@@ -305,18 +310,59 @@ const Donar = () => {
     );
   };
 
-  // Formatear la fecha
+  // Formatear fecha
   const formatDate = (timestamp) => {
     if (!timestamp?.toDate) {
-      return 'Fecha pendiente';
+      return "Fecha pendiente";
     }
 
-    return timestamp.toDate().toLocaleDateString('es-CO', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
+    return timestamp.toDate().toLocaleDateString("es-CO", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
     });
   };
+
+  // Abrir página de un comercio
+  const abrirComercio = async (url) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert(
+        "No se pudo abrir",
+        "No fue posible abrir la página del comercio."
+      );
+    }
+  };
+
+  // Tarjetas de comercios
+  const renderComercio = (nombre, descripcion, Logo, url) => (
+    <View style={styles.comercioCard}>
+      <View style={styles.comercioLogo}>
+        <Logo width={65} height={55} />
+      </View>
+
+      <View style={styles.comercioInfo}>
+        <Text style={styles.comercioNombre}>{nombre}</Text>
+
+        <Text style={styles.comercioDescripcion}>
+          {descripcion}
+        </Text>
+
+        <TouchableOpacity
+          style={styles.comercioButton}
+          onPress={() => abrirComercio(url)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.comercioButtonText}>
+            Visitar tienda
+          </Text>
+
+          <Text style={styles.comercioArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <ScrollView
@@ -325,311 +371,365 @@ const Donar = () => {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      {/* Resumen de donaciones */}
-      <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>
-          MIS DONACIONES
-        </Text>
+      {/* Encabezado */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Apoyemos juntos</Text>
 
-        <Text style={styles.heroValue}>
-          {donations
-            .reduce(
-              (total, item) =>
-                total + (Number(item.monto) || 0),
-              0
-            )
-            .toLocaleString('es-CO', {
-              style: 'currency',
-              currency: 'COP',
-              maximumFractionDigits: 0,
-            })}
-        </Text>
-
-        <Text style={styles.heroHint}>
-          Total de donaciones registradas en tu cuenta
+        <Text style={styles.headerSubtitle}>
+          Cada aporte puede marcar una diferencia.
         </Text>
       </View>
 
-      {/* Tarjeta principal */}
-      <View style={styles.donationCard}>
-        {/* Selector de tipo */}
-        <View style={styles.toggleContainer}>
-          <TouchableOpacity
+      {/* Navegación */}
+      <View style={styles.navigation}>
+        <TouchableOpacity
+          style={[
+            styles.navigationButton,
+            activeView === "money" && styles.navigationActive,
+          ]}
+          onPress={() => setActiveView("money")}
+        >
+          <Text
             style={[
-              styles.toggleButton,
-              donationType === 'monetary' &&
-                styles.toggleActive,
+              styles.navigationText,
+              activeView === "money" && styles.navigationTextActive,
             ]}
-            onPress={() => setDonationType('monetary')}
-            activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                donationType === 'monetary' &&
-                  styles.toggleTextActive,
-              ]}
-            >
-              Dinero
-            </Text>
-          </TouchableOpacity>
+            Dinero
+          </Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
+        <TouchableOpacity
+          style={[
+            styles.navigationButton,
+            activeView === "supplies" && styles.navigationActive,
+          ]}
+          onPress={() => setActiveView("supplies")}
+        >
+          <Text
             style={[
-              styles.toggleButton,
-              donationType === 'inkind' &&
-                styles.toggleActive,
+              styles.navigationText,
+              activeView === "supplies" && styles.navigationTextActive,
             ]}
-            onPress={() => setDonationType('inkind')}
-            activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                donationType === 'inkind' &&
-                  styles.toggleTextActive,
-              ]}
-            >
-              Insumos
-            </Text>
-          </TouchableOpacity>
-        </View>
+            Insumos
+          </Text>
+        </TouchableOpacity>
 
-        {donationType === 'monetary' ? (
-          <>
-            <Text style={styles.sectionTitle}>
-              Registrar donación
-            </Text>
+        <TouchableOpacity
+          style={[
+            styles.navigationButton,
+            activeView === "balance" && styles.navigationActive,
+          ]}
+          onPress={() => setActiveView("balance")}
+        >
+          <Text
+            style={[
+              styles.navigationText,
+              activeView === "balance" && styles.navigationTextActive,
+            ]}
+          >
+            Balance
+          </Text>
+        </TouchableOpacity>
+      </View>
 
-            <Text style={styles.helperText}>
-              Elige un monto o escribe otro valor en pesos colombianos.
-            </Text>
+      {/* DINERO */}
+      {activeView === "money" && (
+        <View style={styles.mainCard}>
+          <Text style={styles.sectionTitle}>
+            Realizar una donación
+          </Text>
 
-            {/* Montos predefinidos */}
-            <View style={styles.gridAmounts}>
-              {amounts.map((item) => {
-                const selected =
-                  selectedAmount === item.value;
+          <Text style={styles.helperText}>
+            Selecciona cuánto deseas aportar para ayudar a las personas
+            afectadas.
+          </Text>
 
-                return (
-                  <TouchableOpacity
-                    key={item.value}
+          <View style={styles.amountGrid}>
+            {amounts.map((item) => {
+              const selected = selectedAmount === item.value;
+
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[
+                    styles.amountCard,
+                    selected && styles.amountCardSelected,
+                  ]}
+                  onPress={() => handleSelectAmount(item.value)}
+                  activeOpacity={0.8}
+                >
+                  <Text
                     style={[
-                      styles.amountCard,
-                      selected &&
-                        styles.amountCardSelected,
+                      styles.amountText,
+                      selected && styles.amountTextSelected,
                     ]}
-                    onPress={() =>
-                      handleSelectAmount(item.value)
-                    }
-                    activeOpacity={0.8}
                   >
-                    <Text
-                      style={[
-                        styles.amountText,
-                        selected &&
-                          styles.amountTextSelected,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Monto personalizado */}
-            <Text style={styles.label}>
-              Otro monto (COP)
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Ej. 30000"
-              placeholderTextColor="#98A3A6"
-              value={customAmount}
-              onChangeText={handleCustomAmountChange}
-              onFocus={() => setSelectedAmount('custom')}
-              keyboardType="number-pad"
-              maxLength={12}
-              returnKeyType="done"
-            />
-
-            {/* Nombre del donante */}
-            <Text style={styles.label}>
-              Nombre del donante *
-            </Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Escribe tu nombre"
-              placeholderTextColor="#98A3A6"
-              value={donorName}
-              onChangeText={setDonorName}
-              autoCapitalize="words"
-              maxLength={80}
-              returnKeyType="next"
-            />
-
-            {/* Mensaje opcional */}
-            <Text style={styles.label}>
-              Mensaje (opcional)
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                styles.noteInput,
-              ]}
-              placeholder="¿Quieres dejar una nota? (máx. 250 caracteres)"
-              placeholderTextColor="#98A3A6"
-              value={note}
-              onChangeText={setNote}
-              maxLength={250}
-              multiline
-            />
-
-            <Text style={styles.disclaimer}>
-              Este formulario registra tu intención de donar.
-              No procesa pagos ni solicita datos bancarios.
-            </Text>
-
-            {/* Botón de guardar */}
-            <TouchableOpacity
-              style={[
-                styles.submitButton,
-                saving && styles.buttonDisabled,
-              ]}
-              onPress={handleSaveDonation}
-              disabled={saving}
-              activeOpacity={0.8}
-            >
-              {saving ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.submitButtonText}>
-                  Guardar donación
-                </Text>
-              )}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <View style={styles.supermercadoContainer}>
-            <Text style={styles.helperText}>
-              Consulta estos comercios para encontrar productos
-              de primera necesidad que puedas donar.
-            </Text>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
-      </View>
 
-      {/* Comercios para donaciones de insumos */}
-      {donationType === 'inkind' && (
-        <View style={styles.infoContainer}>
-          <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>
-              Tiendas D1
-            </Text>
+          <Text style={styles.label}>Otro monto (COP)</Text>
 
-            <LogoD1 width={70} height={70} />
+          <TextInput
+            style={[
+              styles.input,
+              selectedAmount === "custom" && styles.inputFocused,
+            ]}
+            placeholder="Ej. 30000"
+            placeholderTextColor="#777777"
+            value={customAmount}
+            onChangeText={handleCustomAmountChange}
+            keyboardType="number-pad"
+            maxLength={12}
+            returnKeyType="done"
+          />
 
-            <TouchableOpacity
-              onPress={() =>
-                Linking.openURL('https://www.d1.com.co/')
-              }
-            >
-              <Text style={styles.linkText}>
-                Visitar D1
+          <Text style={styles.label}>Nombre del donante *</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Escribe tu nombre"
+            placeholderTextColor="#777777"
+            value={donorName}
+            onChangeText={setDonorName}
+            autoCapitalize="words"
+            maxLength={80}
+            returnKeyType="next"
+          />
+
+          <Text style={styles.label}>Mensaje (opcional)</Text>
+
+          <TextInput
+            style={[styles.input, styles.noteInput]}
+            placeholder="Deja un mensaje de apoyo..."
+            placeholderTextColor="#777777"
+            value={note}
+            onChangeText={setNote}
+            maxLength={250}
+            multiline
+          />
+
+          <Text style={styles.disclaimer}>
+            Este formulario registra tu intención de donar. No procesa
+            pagos ni solicita datos bancarios.
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.submitButton,
+              saving && styles.buttonDisabled,
+            ]}
+            onPress={handleSaveDonation}
+            disabled={saving}
+            activeOpacity={0.8}
+          >
+            {saving ? (
+              <ActivityIndicator color="#000000" />
+            ) : (
+              <Text style={styles.submitButtonText}>
+                Guardar donación
               </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>
-              Tiendas Ara
-            </Text>
-
-            <LogoAra width={70} height={70} />
-
-            <TouchableOpacity
-              onPress={() =>
-                Linking.openURL('https://www.tiendasara.com/')
-              }
-            >
-              <Text style={styles.linkText}>
-                Visitar Ara
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>
-              Supermercados Éxito
-            </Text>
-
-            <LogoExito width={70} height={70} />
-
-            <TouchableOpacity
-              onPress={() =>
-                Linking.openURL('https://www.exito.com/')
-              }
-            >
-              <Text style={styles.linkText}>
-                Visitar Éxito
-              </Text>
-            </TouchableOpacity>
-          </View>
+            )}
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Historial personal */}
-      {donationType === 'monetary' && (
-        <View style={styles.historyCard}>
-          <Text style={styles.sectionTitle}>
-            Mi historial
+      {/* INSUMOS */}
+      {activeView === "supplies" && (
+        <View style={styles.mainCard}>
+          <View style={styles.suppliesHeader}>
+            <View style={styles.suppliesIcon}>
+              <Text style={styles.suppliesIconText}>+</Text>
+            </View>
+
+            <View style={styles.suppliesHeaderInfo}>
+              <Text style={styles.sectionTitle}>
+                Donación de insumos
+              </Text>
+
+              <Text style={styles.helperText}>
+                Encuentra productos básicos para apoyar a quienes lo
+                necesitan.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.suppliesMessage}>
+            <Text style={styles.suppliesMessageTitle}>
+              ¿Qué puedes aportar?
+            </Text>
+
+            <Text style={styles.suppliesMessageText}>
+              Agua, alimentos no perecederos, productos de higiene y
+              artículos de primera necesidad.
+            </Text>
+          </View>
+
+          <Text style={styles.storeSectionTitle}>
+            Comercios disponibles
           </Text>
 
+          <View style={styles.storeList}>
+            {renderComercio(
+              "Tiendas D1",
+              "Productos de alimentación y aseo.",
+              LogoD1,
+              "https://www.d1.com.co/"
+            )}
+
+            {renderComercio(
+              "Tiendas Ara",
+              "Artículos básicos para el hogar.",
+              LogoAra,
+              "https://www.tiendasara.com/"
+            )}
+
+            {renderComercio(
+              "Supermercados Éxito",
+              "Alimentos y productos de primera necesidad.",
+              LogoExito,
+              "https://www.exito.com/"
+            )}
+          </View>
+
+          <Text style={styles.suppliesFooter}>
+            Recuerda verificar los puntos de recepción de donaciones
+            antes de entregar tus productos.
+          </Text>
+        </View>
+      )}
+
+      {/* BALANCE */}
+      {activeView === "balance" && (
+        <View>
           {!user ? (
-            <Text style={styles.emptyText}>
-              Inicia sesión para guardar y consultar tus donaciones.
-            </Text>
-          ) : loading ? (
-            <ActivityIndicator color="#12343F" />
-          ) : donations.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Todavía no tienes donaciones registradas.
-            </Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>
+                Inicia sesión para consultar tu balance
+              </Text>
+
+              <Text style={styles.emptyText}>
+                Tu historial de donaciones estará disponible cuando
+                ingreses a tu cuenta.
+              </Text>
+            </View>
           ) : (
-            donations.map((item) => (
-              <View
-                key={item.id}
-                style={styles.historyItem}
-              >
-                <View style={styles.historyInfo}>
-                  <Text style={styles.historyAmount}>
-                    $
-                    {(Number(item.monto) || 0).toLocaleString(
-                      'es-CO'
-                    )}{' '}
-                    COP
-                  </Text>
+            <>
+              <View style={styles.balanceCard}>
+                <Text style={styles.balanceLabel}>
+                  TOTAL DE MIS DONACIONES
+                </Text>
 
-                  <Text style={styles.historyDate}>
-                    {formatDate(item.fecha)}
-                  </Text>
+                <Text style={styles.balanceValue}>
+                  {formatMoney(totalDonated)}
+                </Text>
 
-                  {!!item.nota && (
-                    <Text style={styles.historyNote}>
-                      {item.nota}
+                <View style={styles.balanceDivider} />
+
+                <View style={styles.balanceFooter}>
+                  <View>
+                    <Text style={styles.balanceSmallLabel}>
+                      Donaciones realizadas
                     </Text>
-                  )}
+
+                    <Text style={styles.balanceCount}>
+                      {donations.length}
+                    </Text>
+                  </View>
+
+                  <View style={styles.balanceIcon}>
+                    <Text style={styles.balanceIconText}>$</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.historyCard}>
+                <View style={styles.historyHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>
+                      Mi historial
+                    </Text>
+
+                    <Text style={styles.helperText}>
+                      Consulta tus aportes registrados.
+                    </Text>
+                  </View>
                 </View>
 
-                <Text style={styles.historyStatus}>
-                  {item.estado || 'Registrada'}
-                </Text>
+                {loading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator
+                      size="large"
+                      color="#000000"
+                    />
+
+                    <Text style={styles.emptyText}>
+                      Cargando tus donaciones...
+                    </Text>
+                  </View>
+                ) : donations.length === 0 ? (
+                  <View style={styles.emptyHistory}>
+                    <Text style={styles.emptyHistoryIcon}>$</Text>
+
+                    <Text style={styles.emptyTitle}>
+                      Aún no tienes donaciones
+                    </Text>
+
+                    <Text style={styles.emptyText}>
+                      Cuando registres tu primera donación, aparecerá
+                      aquí.
+                    </Text>
+
+                    <TouchableOpacity
+                      style={styles.emptyButton}
+                      onPress={() => setActiveView("money")}
+                    >
+                      <Text style={styles.emptyButtonText}>
+                        Realizar mi primera donación
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  donations.map((item) => (
+                    <View
+                      key={item.id}
+                      style={styles.historyItem}
+                    >
+                      <View style={styles.historyIcon}>
+                        <Text style={styles.historyIconText}>$</Text>
+                      </View>
+
+                      <View style={styles.historyInfo}>
+                        <Text style={styles.historyAmount}>
+                          {formatMoney(item.monto)}
+                        </Text>
+
+                        <Text style={styles.historyDate}>
+                          {formatDate(item.fecha)}
+                        </Text>
+
+                        {!!item.nota && (
+                          <Text style={styles.historyNote}>
+                            {item.nota}
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={styles.statusContainer}>
+                        <Text style={styles.historyStatus}>
+                          {item.estado || "Registrada"}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                )}
               </View>
-            ))
+            </>
           )}
         </View>
       )}
@@ -637,16 +737,17 @@ const Donar = () => {
   );
 };
 
+// Todos los textos utilizan negro sólido, sin contornos ni sombras.
 const SERIF = Platform.select({
   ios: "Georgia",
   android: "serif",
-  default: "Georgia, serif",
+  default: "Georgia",
 });
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F6F4EF',
+    backgroundColor: "#F6F4EF",
   },
 
   container: {
@@ -654,268 +755,393 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  heroCard: {
-    backgroundColor: '#0D2832',
-    borderRadius: 22,
-    padding: 24,
-    marginBottom: 16,
-    borderBottomWidth: 3,
-    borderBottomColor: '#A8803A',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 6,
+  header: {
+    marginBottom: 20,
+    marginTop: 8,
   },
 
-  heroLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    color: '#D8C08A',
-    marginBottom: 8,
-  },
-
-  heroValue: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#E6D3A3',
-    letterSpacing: 0.3,
+  headerTitle: {
+    color: "#000000",
+    fontSize: 25,
+    fontWeight: "800",
     fontFamily: SERIF,
   },
 
-  heroHint: {
-    color: '#BFCDD1',
-    fontSize: 12,
-    marginTop: 6,
+  headerSubtitle: {
+    color: "#000000",
+    fontSize: 13,
+    marginTop: 5,
   },
 
-  donationCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 22,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E6E1D6',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 3,
-  },
-
-  toggleContainer: {
-    backgroundColor: '#EFEBE2',
-    borderRadius: 14,
+  navigation: {
+    flexDirection: "row",
+    backgroundColor: "#EAE7DF",
+    borderRadius: 15,
     padding: 4,
-    flexDirection: 'row',
     marginBottom: 18,
   },
 
-  toggleButton: {
+  navigationButton: {
     flex: 1,
-    paddingVertical: 11,
-    borderRadius: 11,
-    alignItems: 'center',
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
   },
 
-  toggleActive: {
-    backgroundColor: '#ffffff',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+  navigationActive: {
+    backgroundColor: "#FFFFFF",
     elevation: 2,
   },
 
-  toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#5E6F74',
+  navigationText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#000000",
   },
 
-  toggleTextActive: {
-    color: '#12343F',
+  navigationTextActive: {
+    color: "#000000",
+    fontWeight: "800",
+  },
+
+  mainCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#E6E1D6",
+    elevation: 2,
   },
 
   sectionTitle: {
     fontSize: 19,
-    fontWeight: '700',
-    color: '#12343F',
-    marginBottom: 8,
-    letterSpacing: 0.2,
+    fontWeight: "700",
+    color: "#000000",
+    marginBottom: 7,
     fontFamily: SERIF,
   },
 
   helperText: {
-    color: '#5E6F74',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 14,
+    color: "#000000",
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 15,
   },
 
-  gridAmounts: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  amountGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
     marginBottom: 8,
   },
 
   amountCard: {
-    width: '48%',
+    width: "48%",
     borderWidth: 1,
-    borderColor: '#E6E1D6',
+    borderColor: "#E6E1D6",
     borderRadius: 14,
     paddingVertical: 16,
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     marginBottom: 10,
   },
 
   amountCardSelected: {
-    backgroundColor: '#F6EFE0',
-    borderColor: '#A8803A',
+    backgroundColor: "#F6EFE0",
+    borderColor: "#A8803A",
     borderWidth: 1.5,
   },
 
   amountText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#12343F',
+    fontWeight: "700",
+    color: "#000000",
   },
 
   amountTextSelected: {
-    color: '#7A5A1E',
+    color: "#000000",
   },
 
   label: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#3B4A50',
-    marginTop: 8,
-    marginBottom: 6,
-    letterSpacing: 0.3,
+    fontWeight: "700",
+    color: "#000000",
+    marginTop: 9,
+    marginBottom: 7,
   },
 
   input: {
     borderWidth: 1,
-    borderColor: '#D9D3C5',
-    borderRadius: 14,
-    paddingHorizontal: 12,
+    borderColor: "#D9D3C5",
+    borderRadius: 13,
+    paddingHorizontal: 13,
     paddingVertical: 13,
-    fontSize: 15,
-    color: '#12343F',
-    backgroundColor: '#ffffff',
+    fontSize: 14,
+    color: "#000000",
+    backgroundColor: "#FFFFFF",
+  },
+
+  inputFocused: {
+    borderColor: "#A8803A",
+    backgroundColor: "#FCFAF5",
   },
 
   noteInput: {
-    minHeight: 72,
-    textAlignVertical: 'top',
+    minHeight: 75,
+    textAlignVertical: "top",
   },
 
   disclaimer: {
-    color: '#5E6F74',
+    color: "#000000",
     fontSize: 11,
-    lineHeight: 16,
-    marginTop: 12,
-    marginBottom: 14,
+    lineHeight: 17,
+    marginTop: 13,
+    marginBottom: 15,
   },
 
   submitButton: {
-    width: '100%',
-    paddingVertical: 16,
-    backgroundColor: '#12343F',
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: "100%",
+    paddingVertical: 15,
+    backgroundColor: "#12343F",
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
     borderBottomWidth: 2,
-    borderBottomColor: '#A8803A',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
+    borderBottomColor: "#A8803A",
   },
 
   buttonDisabled: {
-    opacity: 0.65,
+    opacity: 0.6,
   },
 
   submitButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-
-  supermercadoContainer: {
-    paddingVertical: 10,
-  },
-
-  infoContainer: {
-    marginTop: 16,
-    gap: 14,
-  },
-
-  infoBox: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E6E1D6',
-    alignItems: 'flex-start',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-
-  infoTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#12343F',
-    marginBottom: 10,
-    letterSpacing: 0.2,
-    fontFamily: SERIF,
-  },
-
-  linkText: {
-    marginTop: 10,
+    color: "#000000",
     fontSize: 14,
-    color: '#8F6B28',
-    textDecorationLine: 'none',
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontWeight: "700",
   },
 
-  historyCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 22,
-    padding: 20,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#E6E1D6',
-    shadowColor: '#0D2832',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 3,
+  // Insumos
+  suppliesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 15,
   },
 
-  emptyText: {
-    color: '#5E6F74',
-    fontSize: 13,
+  suppliesIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#EAF0EA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  suppliesIconText: {
+    color: "#000000",
+    fontSize: 27,
+    fontWeight: "400",
+  },
+
+  suppliesHeaderInfo: {
+    flex: 1,
+  },
+
+  suppliesMessage: {
+    backgroundColor: "#F4F5EF",
+    borderRadius: 14,
+    padding: 15,
+    marginBottom: 20,
+  },
+
+  suppliesMessageTitle: {
+    color: "#000000",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+
+  suppliesMessageText: {
+    color: "#000000",
+    fontSize: 12,
     lineHeight: 19,
   },
 
+  storeSectionTitle: {
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+
+  storeList: {
+    gap: 11,
+  },
+
+  comercioCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FAFAF7",
+    borderWidth: 1,
+    borderColor: "#EEECE5",
+    borderRadius: 15,
+    padding: 12,
+  },
+
+  comercioLogo: {
+    width: 82,
+    height: 76,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 13,
+  },
+
+  comercioInfo: {
+    flex: 1,
+  },
+
+  comercioNombre: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000000",
+  },
+
+  comercioDescripcion: {
+    color: "#000000",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+
+  comercioButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 7,
+  },
+
+  comercioButtonText: {
+    color: "#000000",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  comercioArrow: {
+    color: "#000000",
+    fontSize: 20,
+    marginLeft: 4,
+    marginTop: -2,
+  },
+
+  suppliesFooter: {
+    color: "#000000",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 17,
+  },
+
+  // Balance
+  balanceCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 21,
+    padding: 22,
+    marginBottom: 17,
+    borderBottomWidth: 3,
+    borderBottomColor: "#A8803A",
+    elevation: 2,
+  },
+
+  balanceLabel: {
+    color: "#000000",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+  },
+
+  balanceValue: {
+    color: "#000000",
+    fontSize: 30,
+    fontWeight: "800",
+    marginTop: 9,
+    fontFamily: SERIF,
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: "#AAAAAA",
+    marginVertical: 17,
+  },
+
+  balanceFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  balanceSmallLabel: {
+    color: "#000000",
+    fontSize: 11,
+  },
+
+  balanceCount: {
+    color: "#000000",
+    fontSize: 21,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+
+  balanceIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: "#EEEEEE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  balanceIconText: {
+    color: "#000000",
+    fontSize: 24,
+    fontWeight: "700",
+  },
+
+  historyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 21,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#E6E1D6",
+    elevation: 2,
+  },
+
+  historyHeader: {
+    marginBottom: 8,
+  },
+
   historyItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
     borderTopWidth: 1,
-    borderTopColor: '#E6E1D6',
+    borderTopColor: "#F0EEE8",
     gap: 10,
+  },
+
+  historyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: "#F5EFE1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  historyIconText: {
+    color: "#000000",
+    fontSize: 19,
+    fontWeight: "700",
   },
 
   historyInfo: {
@@ -923,30 +1149,95 @@ const styles = StyleSheet.create({
   },
 
   historyAmount: {
-    color: '#12343F',
-    fontSize: 17,
-    fontWeight: '700',
-    fontFamily: SERIF,
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "800",
   },
 
   historyDate: {
-    color: '#5E6F74',
-    fontSize: 12,
+    color: "#000000",
+    fontSize: 11,
     marginTop: 4,
   },
 
   historyNote: {
-    color: '#4A5A60',
-    fontSize: 12,
-    marginTop: 4,
+    color: "#000000",
+    fontSize: 11,
+    marginTop: 5,
+  },
+
+  statusContainer: {
+    backgroundColor: "#EAF2EC",
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
 
   historyStatus: {
-    color: '#8F6B28',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    color: "#000000",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 25,
+    alignItems: "center",
+  },
+
+  emptyHistory: {
+    alignItems: "center",
+    paddingVertical: 22,
+  },
+
+  emptyHistoryIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 18,
+    backgroundColor: "#F5EFE1",
+    color: "#000000",
+    textAlign: "center",
+    textAlignVertical: "center",
+    fontSize: 28,
+    fontWeight: "700",
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+
+  emptyTitle: {
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 7,
+  },
+
+  emptyText: {
+    color: "#000000",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+
+  emptyButton: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    paddingHorizontal: 17,
+    paddingVertical: 12,
+    marginTop: 16,
+  },
+
+  emptyButtonText: {
+    color: "#000000",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  loadingContainer: {
+    alignItems: "center",
+    paddingVertical: 25,
+    gap: 12,
   },
 });
 
